@@ -2,7 +2,7 @@
 #include <algorithm>
 
 namespace sylar{
-    Config::ConfigVarMap Config::s_datas;
+    //Config::ConfigVarMap Config::s_datas;
     
     // ConfigVarBase::ptr Config::LookupBase(const std::string& name){
     //     auto it = s_datas.find(name);

@@ -22,6 +22,11 @@ public:
             <<"]";
         return ss.str();
     }
+    bool operator==(const Person& other)const{
+        return m_name == other.m_name &&
+            m_age == other.m_age &&
+            m_sex == other.m_sex;
+    }
 };
 namespace sylar{
     template <>
@@ -52,23 +57,15 @@ namespace sylar{
 };
 
 sylar::ConfigVar<int>::ptr g_int_value_config = sylar::Config::Lookup("system.port",(int)8080,"system port");
-sylar::ConfigVar<float>::ptr g_int_value_config_2 = sylar::Config::Lookup("system.port",(float)8080,"system port");
+//sylar::ConfigVar<float>::ptr g_int_value_config_2 = sylar::Config::Lookup("system.port",(float)8080,"system port");
 sylar::ConfigVar<float>::ptr g_float_value_config = sylar::Config::Lookup("system.value" ,(float)10.2f,"system value");
-sylar::ConfigVar<std::vector<int>>::ptr g_vec_value_config = sylar::Config::Lookup("system.vec",std::vector<int>{
-        1,2,3
-        },"system vec");
-sylar::ConfigVar<std::list<int>>::ptr g_list_value_config = sylar::Config::Lookup("system.lst",std::list<int>{
-        3,4,5,6
-        },"system list");
-sylar::ConfigVar<std::set<int>>::ptr g_set_value_config = sylar::Config::Lookup("system.set",std::set<int>{
-        2,5,7
-        },"system set");
-sylar::ConfigVar<std::map<std::string,int>>::ptr g_map_value_config = sylar::Config::Lookup("system.map",std::map<std::string,int>{
-        {
-        "aa",1
-        }
-        },"system map");
+sylar::ConfigVar<std::vector<int>>::ptr g_vec_value_config = sylar::Config::Lookup("system.vec",std::vector<int>{1,2,3},"system vec");
+sylar::ConfigVar<std::list<int>>::ptr g_list_value_config = sylar::Config::Lookup("system.lst",std::list<int>{3,4,5,6},"system list");
+sylar::ConfigVar<std::set<int>>::ptr g_set_value_config = sylar::Config::Lookup("system.set",std::set<int>{2,5,7},"system set");
+sylar::ConfigVar<std::map<std::string,int>>::ptr g_map_value_config = sylar::Config::Lookup("system.map",std::map<std::string,int>{{"aa",1}},"system map");
 sylar::ConfigVar<Person>::ptr g_Person_value_config = sylar::Config::Lookup("class.person",Person(),"system person");
+
+
 void print_yaml(const YAML::Node& node,int level){
     if(node.IsScalar()){
         SYLAR_LOG_INFO(SYLAR_LOG_ROOT()) << std::string(level * 4,' ') << node.Scalar() <<" - " << node.Type() <<" - " << level;
@@ -112,6 +109,10 @@ void test_config(){
             SYLAR_LOG_INFO(SYLAR_LOG_ROOT()) << #prefix " " #name ": {" << i.first <<" : " << i.second <<"}"; \
         } \
     }
+    g_Person_value_config->addListener(10,[](const Person& old_value, const Person& new_value){
+            SYLAR_LOG_INFO(SYLAR_LOG_ROOT())<<"old_value:  " << old_value.toString() 
+                <<"newValue: "<< new_value.toString();
+            });
     SYLAR_LOG_INFO(SYLAR_LOG_ROOT())<< "before: "<< g_Person_value_config->getValue().toString();
     SYLAR_LOG_INFO(SYLAR_LOG_ROOT()) << "before: " << g_Person_value_config->toString();
     //XX(g_Person_value_config,person,before);
@@ -129,11 +130,28 @@ void test_config(){
     // XX_M(g_map_value_config,map,after);
 }
 
+void test_log(){
+    static sylar::Logger::ptr system_log = SYLAR_LOG_NAME("system");
+    SYLAR_LOG_INFO(system_log) << "hello system" <<std::endl;
+    std::cout << sylar::LoggerMgr::GetInstance()->toYamlString() << std::endl;
+   // std::cout << sylar::g_log_defines->toString() <<std::endl;
+    YAML::Node root = YAML::LoadFile("../bin/conf/log.yml");
+    sylar::Config::LoadFromYaml(root);
+    std::cout << "============================" << std::endl;
+    //std::cout << sylar::g_log_defines->toString() << std::endl;
+    std::cout << sylar::LoggerMgr::GetInstance()->toYamlString() << std::endl;
+    SYLAR_LOG_INFO(system_log) << "hello system";
+    system_log->setFormatter("%d-  %m%n");
+    SYLAR_LOG_INFO(system_log) << "hello system";
+    //std::cout << sylar::LoggerMgr::GetInstance()->toYamlString() << std::endl;
+}
+
 int main(int argc,char* argv[]){
     // SYLAR_LOG_INFO(SYLAR_LOG_ROOT());
     // SYLAR_LOG_INFO(SYLAR_LOG_ROOT()) << g_int_value_config->getValue();
     // SYLAR_LOG_INFO(SYLAR_LOG_ROOT()) << g_int_value_config->toString();
     // test_yaml();
-    test_config();
+    //test_config();
+    test_log();
     return 0;
 }

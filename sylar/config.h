@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <sstream>
@@ -258,6 +259,7 @@ namespace sylar{
     class ConfigVar : public ConfigVarBase{
     public:
         using ptr = std::shared_ptr<ConfigVar>;
+        using on_change_cb = std::function<void (const T& old_value,const T& new_value)>;
         ConfigVar(const std::string& name,const T& default_value,const std::string& description):
             ConfigVarBase(name,description),m_val(default_value){}
 
@@ -281,9 +283,31 @@ namespace sylar{
             return false;
         }
         const T& getValue()const{return m_val;}
-        void setValue(const T& val){m_val = val;}
+        void setValue(const T& val){
+            if(m_val == val){
+                return;
+            }
+            for(auto& i : m_cbs){
+                i.second(m_val,val);
+            }
+            m_val = val;
+        }
+
+        void addListener(uint64_t key, on_change_cb cb){
+            m_cbs[key] = cb;
+        }
+        void delListenner(uint64_t key){
+            auto it = m_cbs.find(key);
+            if(it != m_cbs.end())
+                m_cbs.erase(it);
+        }
+
+        void clearListener(){
+            m_cbs.clear();
+        }
     private:
         T m_val;
+        std::map<uint64_t,on_change_cb> m_cbs;
     };
     //配置管理类
     class Config {
@@ -292,8 +316,8 @@ namespace sylar{
         using ConfigVarMap = std::map<std::string,ConfigVarBase::ptr>;
 
         static ConfigVarBase::ptr LookupBase(const std::string& name){
-            auto it = s_datas.find(name);
-            return it == s_datas.end() ? nullptr : it->second;
+            auto it = GetDatas().find(name);
+            return it == GetDatas().end() ? nullptr : it->second;
         // return nullptr;
         };
         static void LoadFromYaml(const YAML::Node& root){
@@ -321,8 +345,8 @@ namespace sylar{
         
         template<typename T>
         static typename ConfigVar<T>::ptr Lookup(const std::string& name,const T& default_value,const std::string& description = ""){
-            auto it = s_datas.find(name);
-            if(it != s_datas.end()){
+            auto it = GetDatas().find(name);
+            if(it != GetDatas().end()){
                 auto tmp = std::dynamic_pointer_cast<ConfigVar<T>>(it->second);
                 if(tmp){
                     SYLAR_LOG_INFO(SYLAR_LOG_ROOT()) << "Lookup name = " <<name << " exists";
@@ -338,19 +362,22 @@ namespace sylar{
             }
             //无异常即定义
             typename ConfigVar<T>::ptr v(new ConfigVar<T>(name,default_value,description));
-            s_datas[name] = v;
+            GetDatas()[name] = v;
             return v;
         };
 
         template<typename T>
             static typename ConfigVar<T>::ptr Lookup(const std::string& name){
-                auto it = s_datas.find(name);
-                if(it == s_datas.end()){
+                auto it = GetDatas().find(name);
+                if(it == GetDatas().end()){
                     return nullptr;
                 }
                 return std::dynamic_pointer_cast<ConfigVar<T>>(it->second);//找到就转换为具体类的只能指针
             };
     private:
-        static ConfigVarMap s_datas;
+        static ConfigVarMap& GetDatas(){
+            static ConfigVarMap s_datas;
+            return s_datas;
+        }
     };
 };
