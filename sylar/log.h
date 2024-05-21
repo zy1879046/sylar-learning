@@ -20,6 +20,7 @@
 #include <iostream>
 #include "singleton.h"
 #include "util.h"
+#include "thread.h"
 //简而言之创建一个LogEventWrap类，其中包含一个LogEvent指针，LogEvent中包含Logger指针，然后通过LogEventWrap的析构调用Logger的log
 #define SYLAR_LOG_LEVEL(logger,level) \
     if(logger->getLevel() <= level) \
@@ -160,43 +161,60 @@ namespace sylar{
     //日志输出地
     class LogAppender{
     public:
+        friend class Logger;
         using ptr = std::shared_ptr<LogAppender>;
+        using MutexType = Spinlock;
         virtual ~LogAppender(){}
 
         virtual void log(std::shared_ptr<Logger> logger,LogLevel::Level level,LogEvent::ptr event) = 0;
-        void setFormatter(LogFormatter::ptr formatter){m_formatter = formatter;}
-        LogFormatter::ptr getFormatter()const{return m_formatter;}
+        void setFormatter(LogFormatter::ptr formatter){ // 1
+            MutexType::Lock lock(m_mutex);
+            m_formatter = formatter;
+            m_hasFormatter = m_formatter != nullptr;
+        }
+        LogFormatter::ptr getFormatter()const{ // 2
+            MutexType::Lock lock(m_mutex);
+            return m_formatter;
+        }
         void setLevel(LogLevel::Level level){
+            MutexType::Lock lock(m_mutex);
             m_level = level;
             m_hasLevel = true;
         }
         const LogLevel::Level getLevel()const{
+            MutexType::Lock lock(m_mutex);
             return m_level;
         }
         virtual std::string toYamlString() = 0;
         void setHasFormatter(const bool& v){
+            MutexType::Lock lock(m_mutex);
             m_hasFormatter = v;
         }
         const bool getHasFormatter()const{
+            MutexType::Lock lock(m_mutex);
             return m_hasFormatter;
         }
         void setHasLevel(const bool&v){
+            MutexType::Lock lock(m_mutex);
             m_hasLevel = v;
         }
         const bool getHasLevel()const{
+            MutexType::Lock lock(m_mutex);
             return m_hasLevel;
         }
     protected:
         LogLevel::Level m_level = LogLevel::DEBUG;
-        LogFormatter::ptr m_formatter;
+        LogFormatter::ptr m_formatter = nullptr;
         bool m_hasFormatter = false;
         bool m_hasLevel = false;
+        mutable MutexType m_mutex;
     };
 
     //日志输出器
     class Logger : public std::enable_shared_from_this<Logger>{
         friend class LoggerManager;
     public:
+        using MutexType = Spinlock;
         using ptr = std::shared_ptr<Logger>;
         Logger(const std::string& name = "root");
         void log(LogLevel::Level level ,LogEvent::ptr event);
@@ -207,14 +225,25 @@ namespace sylar{
         void fatal(LogEvent::ptr event);
         void error(LogEvent::ptr event);
 
-        void addAppender(LogAppender::ptr appender);
+        void addAppender(LogAppender::ptr appender); // 6
         void delAppender(LogAppender::ptr appender);
-        LogLevel::Level getLevel()const {return m_level;}
-        void setLevel(LogLevel::Level level){m_level = level;}
-        const std::string& getName()const{return m_name;}
-        void setFormatter(LogFormatter::ptr formatter){
+        LogLevel::Level getLevel()const {
+            // MutexType::Lock lock(m_mutex);
+            return m_level;
+        }
+        void setLevel(LogLevel::Level level){
+            MutexType::Lock lock(m_mutex);
+            m_level = level;
+        }
+        const std::string& getName()const{
+            // MutexType::Lock lock(m_mutex);
+            return m_name;
+        }
+        void setFormatter(LogFormatter::ptr formatter){ // 3
+            MutexType::Lock lock(m_mutex);
             m_formatter = formatter;
             for(auto& i : m_appender){
+                // MutexType::Lock ll(i->m_mutex);
                 if(!i->getHasFormatter()){
                     i->setFormatter(formatter);
                     i->setHasFormatter(false);
@@ -226,19 +255,22 @@ namespace sylar{
             if(!fmt->isError())
                 setFormatter(fmt);
         }
-        const LogFormatter::ptr getFormatter()const{
+        const LogFormatter::ptr getFormatter()const{ // 4
+            MutexType::Lock lock(m_mutex);
             return m_formatter;
         }
         void clearAppender(){
+            MutexType::Lock lock(m_mutex);
             m_appender.clear();
         }
-        std::string toYamlString();
+        std::string toYamlString();// 5
     private:
         std::string m_name;                         //日志名称
         LogLevel::Level m_level;                    //级别
         std::list<LogAppender::ptr> m_appender;     //Appender集合
         LogFormatter::ptr m_formatter;              //格式
         Logger::ptr m_root;
+        mutable MutexType m_mutex;
     };
 
     //输出方法分类
@@ -262,10 +294,12 @@ namespace sylar{
     private:
         std::string m_filename;
         std::ofstream m_filestream;
+        uint64_t m_lastTime = 0;
     };
 
     class LoggerManager{
     public:
+        using MutexType = Spinlock;
         LoggerManager();
         Logger::ptr getLogger(const std::string& name);
         void pushLogger(const std::string& str,Logger::ptr);
@@ -276,6 +310,7 @@ namespace sylar{
         void init();
         std::unordered_map<std::string,Logger::ptr> m_loggers;
         Logger::ptr m_root;
+        MutexType m_mutex;
     };
     using LoggerMgr = sylar::Singleton<LoggerManager>;
 };

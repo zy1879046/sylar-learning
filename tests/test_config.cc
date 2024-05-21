@@ -109,7 +109,7 @@ void test_config(){
             SYLAR_LOG_INFO(SYLAR_LOG_ROOT()) << #prefix " " #name ": {" << i.first <<" : " << i.second <<"}"; \
         } \
     }
-    g_Person_value_config->addListener(10,[](const Person& old_value, const Person& new_value){
+    g_Person_value_config->addListener([](const Person& old_value, const Person& new_value){
             SYLAR_LOG_INFO(SYLAR_LOG_ROOT())<<"old_value:  " << old_value.toString() 
                 <<"newValue: "<< new_value.toString();
             });

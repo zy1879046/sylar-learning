@@ -185,7 +185,8 @@ namespace sylar{
         m_formatter.reset(new LogFormatter("%d{%Y-%m-%d %H:%M:%S}%T%t%T%F%T[%p]%T[%c]%T%f:%l%T%m%n"));
     }
 
-    std::string Logger::toYamlString(){
+    std::string Logger::toYamlString(){ // 5
+        MutexType::Lock lock(m_mutex);
         YAML::Node node;
         node["name"] = m_name;
         if(m_level != LogLevel::UNKNOW){
@@ -202,23 +203,26 @@ namespace sylar{
         ss << node;
         return ss.str();
     }
-    void Logger::addAppender(LogAppender::ptr appender){
+    void Logger::addAppender(LogAppender::ptr appender){ // 6
+        MutexType::Lock lock(m_mutex);
         if(!appender->getFormatter()){
+            // MutexType::Lock ll(appender->m_mutex);
             appender->setFormatter(m_formatter);//保证每个日志都有默认格式
-        }else{
-            appender->setHasFormatter(true);
+            appender->setHasFormatter(false);
         }
         m_appender.push_back(appender);
     }
 
-    void Logger::delAppender(LogAppender::ptr appender){
+    void Logger::delAppender(LogAppender::ptr appender){ // 7
+        MutexType::Lock lock(m_mutex);
         auto it = std::find(m_appender.begin(),m_appender.end(),appender);
         if(it != m_appender.end()) m_appender.erase(it);
     }
 
-    void Logger::log(LogLevel::Level level ,LogEvent::ptr event){
+    void Logger::log(LogLevel::Level level ,LogEvent::ptr event){ // 8
         if(level >= m_level){
             auto self = shared_from_this();
+            MutexType::Lock lock(m_mutex);
             if(!m_appender.empty()){
                 for(auto& i : m_appender){
                     i->log(self,level,event);
@@ -252,13 +256,21 @@ namespace sylar{
 
     void FileLogAppender::log(Logger::ptr logger,LogLevel::Level level,LogEvent::ptr event){
         if(level >= m_level){
-            reopen();
-            m_filestream << m_formatter->format(logger,level,event);
-            m_filestream.close();
+            uint64_t now = event->getTime();
+            if(now >= (m_lastTime + 3)){
+                reopen();
+                m_lastTime = now;
+            }
+            MutexType::Lock lock(m_mutex);
+            if(!(m_filestream << m_formatter->format(logger,level,event))){
+                std::cout << "error" << std::endl;
+            }
+            // m_filestream.close();
         }
     }
 
     bool FileLogAppender::reopen(){
+        MutexType::Lock lock(m_mutex);
         if(m_filestream){
             m_filestream.close();
         }
@@ -268,6 +280,7 @@ namespace sylar{
     }
     
     std::string FileLogAppender::toYamlString(){
+        MutexType::Lock lock(m_mutex);
         YAML::Node node;
         node["type"] = "FileLogAppender";
         node["file"] = m_filename;
@@ -284,11 +297,13 @@ namespace sylar{
 
     void StdoutAppender::log(Logger::ptr logger,LogLevel::Level level,LogEvent::ptr event){
         if(level >= m_level){
+            MutexType::Lock lock(m_mutex);
             std::cout << m_formatter->format(logger,level,event);
         }
     }
 
     std::string StdoutAppender::toYamlString(){
+        MutexType::Lock lock(m_mutex);
         YAML::Node node;
         node["type"] = "StdoutAppender";
         if(m_hasLevel && m_level != LogLevel::UNKNOW){
@@ -462,7 +477,7 @@ namespace sylar{
     struct LogIniter{
         LogIniter(){
             //绑定事件当该配置发生变化时触发
-            g_log_defines->addListener(0xF1213,[](const std::set<LogDefine>& old_val,const std::set<LogDefine>& new_val){
+            g_log_defines->addListener([](const std::set<LogDefine>& old_val,const std::set<LogDefine>& new_val){
                     SYLAR_LOG_INFO(SYLAR_LOG_ROOT()) << "on_logger_conf_changed";
                     for(auto& i : new_val){
                         auto it = old_val.find(i);
@@ -618,6 +633,7 @@ namespace sylar{
         m_loggers[m_root->m_name] = m_root;
     }
     std::string LoggerManager::toYamlString(){
+        MutexType::Lock lock(m_mutex);
         YAML::Node node;
         for(auto& i : m_loggers){
             node.push_back(YAML::Load(i.second->toYamlString()));

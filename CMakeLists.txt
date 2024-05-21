@@ -3,7 +3,7 @@ project(sylar)
 include (cmake/utils.cmake)
 
 set(CMAKE_VERBOSE_MAKEFILE ON) 
-set(CMAKE_CXX_FLAGS "$ENV{CXXFLAGS} -O0 -g -std=c++11 -Wall -Wno-deprecated -Werror -Wno-unused-function -Wno-builtin-macro-redefined")
+set(CMAKE_CXX_FLAGS "$ENV{CXXFLAGS}  -g -std=c++11 -Wall  -Wno-deprecated -Werror -Wno-unused-function -Wno-builtin-macro-redefined ")
 # 设置 C++ 标准为 C++11
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -28,6 +28,13 @@ set(LIB_SRC
     sylar/log.cc
     sylar/util.cc
     sylar/config.cc
+    sylar/thread.cc
+    sylar/mutex.cc
+    )
+    set(LIB_LIB 
+        sylar
+        pthread
+        ${Boost_LIBRARIES}
     )
 
 add_library(sylar SHARED ${LIB_SRC})
@@ -47,7 +54,12 @@ force_redefine_file_macro_for_sources(sylar) #__FILE__ 重定义该宏为相对�
 
 add_executable(test_config tests/test_config.cc)
 add_dependencies(test_config sylar)
-target_link_libraries(test_config sylar ${Boost_LIBRARIES})
+target_link_libraries(test_config ${LIB_LIB})
+
+add_executable(test_thread tests/test_thread.cc)
+add_dependencies(test_thread sylar)
+force_redefine_file_macro_for_sources(test_thread) #__FILE__ 重定义该宏为相对路径
+target_link_libraries(test_thread ${LIB_LIB})
 
 SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 SET(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)

@@ -259,6 +259,7 @@ namespace sylar{
     class ConfigVar : public ConfigVarBase{
     public:
         using ptr = std::shared_ptr<ConfigVar>;
+        using RWMutexType = RWMutex;
         using on_change_cb = std::function<void (const T& old_value,const T& new_value)>;
         ConfigVar(const std::string& name,const T& default_value,const std::string& description):
             ConfigVarBase(name,description),m_val(default_value){}
@@ -266,6 +267,7 @@ namespace sylar{
         std::string toString()override{
             try{
                 //return boost::lexical_cast<std::string>(m_val);
+                RWMutexType::ReadLock lock(s_mutex);
                 return ToStr()(m_val);
             }catch(std::exception& e){
                 SYLAR_LOG_ERROR(SYLAR_LOG_ROOT()) << "ConfigVar::toString exception" <<e.what() <<"convert: "<< typeid(m_val).name() <<"to string";
@@ -282,40 +284,57 @@ namespace sylar{
             }
             return false;
         }
-        const T& getValue()const{return m_val;}
+        const T& getValue()const{
+            RWMutexType::ReadLock lock(s_mutex);
+            return m_val;
+        }
         void setValue(const T& val){
-            if(m_val == val){
-                return;
-            }
-            for(auto& i : m_cbs){
-                i.second(m_val,val);
-            }
+                
+            {
+                RWMutexType::ReadLock lock(s_mutex);
+                if(m_val == val){
+                    return;
+                }
+                for(auto& i : m_cbs){
+                    i.second(m_val,val);
+                }
+            } 
+            RWMutexType::WriteLock lock(s_mutex);
             m_val = val;
         }
 
-        void addListener(uint64_t key, on_change_cb cb){
-            m_cbs[key] = cb;
+        uint64_t addListener(on_change_cb cb){
+            static uint64_t s_fun_id = 0;
+            RWMutexType::WriteLock lock(s_mutex);
+            ++s_fun_id;
+            m_cbs[s_fun_id] = cb;
+            return s_fun_id;
         }
         void delListenner(uint64_t key){
+            RWMutexType::WriteLock lock(s_mutex);
             auto it = m_cbs.find(key);
             if(it != m_cbs.end())
                 m_cbs.erase(it);
         }
 
         void clearListener(){
+            RWMutexType::WriteLock lock(s_mutex);
             m_cbs.clear();
         }
     private:
         T m_val;
         std::map<uint64_t,on_change_cb> m_cbs;
+        mutable RWMutexType s_mutex;
     };
     //配置管理类
     class Config {
     public:
         // using ptr = std::shared_ptr<Config>;
+        using RWMutexType = RWMutex;
         using ConfigVarMap = std::map<std::string,ConfigVarBase::ptr>;
 
         static ConfigVarBase::ptr LookupBase(const std::string& name){
+            RWMutexType::ReadLock lock(GetMutex());
             auto it = GetDatas().find(name);
             return it == GetDatas().end() ? nullptr : it->second;
         // return nullptr;
@@ -345,6 +364,7 @@ namespace sylar{
         
         template<typename T>
         static typename ConfigVar<T>::ptr Lookup(const std::string& name,const T& default_value,const std::string& description = ""){
+            RWMutexType::WriteLock lock(GetMutex());
             auto it = GetDatas().find(name);
             if(it != GetDatas().end()){
                 auto tmp = std::dynamic_pointer_cast<ConfigVar<T>>(it->second);
@@ -368,16 +388,31 @@ namespace sylar{
 
         template<typename T>
             static typename ConfigVar<T>::ptr Lookup(const std::string& name){
+                RWMutexType::ReadLock lock(GetMutex());
                 auto it = GetDatas().find(name);
                 if(it == GetDatas().end()){
                     return nullptr;
                 }
                 return std::dynamic_pointer_cast<ConfigVar<T>>(it->second);//找到就转换为具体类的只能指针
             };
+
+        static void Visit(std::function<void(ConfigVarBase::ptr)> cb){
+            RWMutexType::ReadLock lock(GetMutex());
+            ConfigVarMap& m = GetDatas();
+            for(auto it = m.begin(); it != m.end(); ++it){
+                cb(it->second);
+            }
+        }
     private:
         static ConfigVarMap& GetDatas(){
             static ConfigVarMap s_datas;
             return s_datas;
+        }
+
+        static RWMutexType& GetMutex()
+        {
+            static RWMutexType s_mutex;
+            return s_mutex;
         }
     };
 };
